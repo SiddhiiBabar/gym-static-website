@@ -1,20 +1,58 @@
 pipeline {
     agent any
 
+    environment {
+        SERVER_IP = '172.31.1.47'
+        SSH_CREDENTIAL = 'gym-key'
+        REPO_URL = 'https://github.com/SiddhiiBabar/gym-static-website.git'
+        BRANCH = 'main'
+        REMOTE_USER = 'ubuntu'
+        TEMP_PATH = '/home/ubuntu/deploy'
+        REMOTE_PATH = '/var/www/html'
+    }
+
     stages {
-        stage('Checkout') {
+
+        stage('Clone Repository') {
             steps {
-                git 'https://github.com/SiddhiiBabar/gym-static-website.git'
+                git branch: "${BRANCH}", url: "${REPO_URL}"
             }
         }
 
-        stage('Deploy to Apache') {
+        stage('Deploy to Target Server') {
             steps {
-                sh '''
-                sudo rm -rf /var/www/html/*
-                sudo cp -r * /var/www/html/
-                '''
+                sshagent(["${SSH_CREDENTIAL}"]) {
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "mkdir -p ${TEMP_PATH}"
+
+                    scp -o StrictHostKeyChecking=no -r index.html README.md \
+                    ${REMOTE_USER}@${SERVER_IP}:${TEMP_PATH}/
+
+                    ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} \
+                    "sudo cp -r ${TEMP_PATH}/* ${REMOTE_PATH}/"
+                    """
+                }
             }
+        }
+
+        stage('Restart Nginx') {
+            steps {
+                sshagent(["${SSH_CREDENTIAL}"]) {
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} \
+                    "sudo systemctl restart nginx"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Deployment Successful'
+        }
+        failure {
+            echo '❌ Deployment Failed'
         }
     }
 }
